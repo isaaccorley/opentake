@@ -3,7 +3,6 @@ import {
   isRuntimeMessage,
   type RecordingSessionMarker,
   type RuntimeMessage,
-  SESSION_STORAGE_KEY,
 } from './protocol';
 
 type ActiveRecording = {
@@ -15,30 +14,58 @@ type ActiveRecording = {
   epochMs: number;
 };
 
-const store = createOpfsStore();
 let active: ActiveRecording | undefined;
 let startGeneration = 0;
 
-chrome.runtime.onMessage.addListener((message: unknown) => {
-  if (!isRuntimeMessage(message)) return false;
-  if (message.type === 'OFFSCREEN_START') {
-    const generation = ++startGeneration;
-    void start(
-      message.sessionId,
-      message.streamId,
-      message.countdownMs,
-      generation,
-    );
-  }
-  if (message.type === 'OFFSCREEN_STOP') {
-    startGeneration += 1;
-    stop();
-  }
-  return false;
-});
+void chrome.runtime
+  .sendMessage({
+    type: 'OFFSCREEN_READY',
+  } satisfies RuntimeMessage)
+  .catch(() => undefined);
+
+function syntheticTestStream(): MediaStream {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 720;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Synthetic recording canvas is unavailable');
+  let frame = 0;
+  const paint = () => {
+    frame += 1;
+    context.fillStyle = '#10252c';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#d4f36a';
+    context.fillRect((frame * 5) % 1080, 260, 200, 200);
+    requestAnimationFrame(paint);
+  };
+  paint();
+  return canvas.captureStream(30);
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRuntimeMessage(message)) return false;
+    if (message.type === 'OFFSCREEN_START') {
+      const generation = ++startGeneration;
+      void start(
+        message.session,
+        message.streamId,
+        message.countdownMs,
+        generation,
+      );
+      sendResponse({ accepted: true });
+    }
+    if (message.type === 'OFFSCREEN_STOP') {
+      startGeneration += 1;
+      stop();
+      sendResponse({ accepted: true });
+    }
+    return false;
+  },
+);
 
 async function start(
-  sessionId: string,
+  session: RecordingSessionMarker,
   streamId: string,
   countdownMs: number,
   generation: number,
@@ -49,22 +76,21 @@ async function start(
   }
   if (generation !== startGeneration) return;
 
-  const stored = await chrome.storage.local.get(SESSION_STORAGE_KEY);
-  const session = stored[SESSION_STORAGE_KEY] as
-    | RecordingSessionMarker
-    | undefined;
-  if (!session || session.id !== sessionId) return;
-
   let stream: MediaStream | undefined;
   let writer: OpfsWriter | undefined;
   try {
     const source = {
       mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId },
     } as MediaTrackConstraints;
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: source,
-      video: source,
-    });
+    stream =
+      import.meta.env.MODE === 'e2e' &&
+      streamId === '__opentake_e2e_synthetic_media__'
+        ? syntheticTestStream()
+        : await navigator.mediaDevices.getUserMedia({
+            audio: source,
+            video: source,
+          });
+    const store = createOpfsStore();
     writer = await store.openWriter(session.mediaKey);
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
       ? 'video/webm;codecs=vp9,opus'
@@ -91,7 +117,7 @@ async function start(
     recorder.start(1000);
     await chrome.runtime.sendMessage({
       type: 'OFFSCREEN_RECORDING_STARTED',
-      sessionId,
+      sessionId: session.id,
       epochMs,
       mimeType: recorder.mimeType,
     } satisfies RuntimeMessage);
@@ -100,7 +126,7 @@ async function start(
       track.stop();
     });
     await writer?.abort().catch(() => undefined);
-    await reportFailure(sessionId, error);
+    await reportFailure(session.id, error);
   }
 }
 

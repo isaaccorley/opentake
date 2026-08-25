@@ -87,7 +87,7 @@ function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">OT</span>
-          <span>OpenTake</span>
+          <h1>OpenTake</h1>
           <span className="crumb">/ Editor</span>
         </div>
         <div className="transport">
@@ -138,11 +138,7 @@ function App() {
             <span>Preview</span>
             <span className="preview-meta">{tc(time)} · 100%</span>
           </div>
-          <div
-            className="canvas-stage"
-            role="img"
-            aria-label="Video preview placeholder"
-          >
+          <div className="canvas-stage" role="img" aria-label="Video preview">
             <div className="canvas-frame">
               <div className="fake-window">
                 <span className="fake-dot red" />
@@ -461,7 +457,7 @@ function ExportPanel() {
       </button>
       <p className="hint">
         {selectedSupported
-          ? 'This format is supported on this device. Encoding lands with the render milestone.'
+          ? 'This format is supported on this device. Export support will be added with the render milestone.'
           : 'This codec combination is unavailable on this device.'}
       </p>
     </div>

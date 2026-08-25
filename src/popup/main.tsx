@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { recordingStatus, startRecording, stopRecording } from '../platform';
 import '../styles.css';
@@ -11,9 +11,12 @@ function errorMessage(error: unknown): string {
 }
 
 function Popup() {
+  const recordingUnavailable = import.meta.env.MODE === 'firefox';
   const [status, setStatus] = useState('Checking the active tab…');
   const [phase, setPhase] = useState<Phase>('loading');
   const [targetTabId, setTargetTabId] = useState<number>();
+  const cancelRequested = useRef(false);
+  const cancelCompleted = useRef(false);
 
   useEffect(() => {
     void Promise.all([
@@ -31,7 +34,11 @@ function Popup() {
           );
         } else {
           setPhase('idle');
-          setStatus('Ready to record the active tab.');
+          setStatus(
+            recordingUnavailable
+              ? 'Firefox editor available. Tab recording is not ready yet.'
+              : 'Ready to record the active tab.',
+          );
         }
       })
       .catch((error: unknown) => {
@@ -40,6 +47,19 @@ function Popup() {
       });
   }, []);
 
+  useEffect(() => {
+    if (phase !== 'starting') return;
+    const interval = window.setInterval(() => {
+      void recordingStatus().then((current) => {
+        if (current.ok && current.state === 'recording') {
+          setPhase('recording');
+          setStatus('Recording this tab to local storage.');
+        }
+      });
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [phase]);
+
   const start = () => {
     if (targetTabId === undefined) {
       setStatus('This tab cannot be captured.');
@@ -47,18 +67,44 @@ function Popup() {
     }
 
     // This call must stay synchronous with the click. Stream IDs are user-gesture bound.
-    const streamIdPromise = chrome.tabCapture.getMediaStreamId({ targetTabId });
+    const streamIdPromise =
+      import.meta.env.MODE === 'e2e'
+        ? Promise.resolve('__opentake_e2e_synthetic_media__')
+        : import.meta.env.MODE === 'firefox'
+          ? Promise.reject(
+              new Error('Firefox tab capture is not implemented yet.'),
+            )
+          : chrome.tabCapture.getMediaStreamId({ targetTabId });
+    cancelRequested.current = false;
+    cancelCompleted.current = false;
     setPhase('starting');
     setStatus('Starting a 3 second countdown…');
     void streamIdPromise
       .then((streamId) => startRecording(targetTabId, streamId, 3000))
-      .then((response) => {
+      .then(async (response) => {
         if (!response.ok) throw new Error(response.error);
+        if (cancelRequested.current && !cancelCompleted.current) {
+          const stopped = await stopRecording();
+          if (!stopped.ok) throw new Error(stopped.error);
+          setPhase('idle');
+          setStatus('Recording countdown canceled.');
+          return;
+        }
         window.setTimeout(() => {
           void recordingStatus().then((current) => {
             if (current.ok && current.state === 'recording') {
               setPhase('recording');
               setStatus('Recording this tab to local storage.');
+            } else if (current.ok && current.state === 'idle') {
+              setPhase('idle');
+              void chrome.storage.local.get('recordingError').then((stored) => {
+                const recordingError = stored.recordingError;
+                setStatus(
+                  typeof recordingError === 'string'
+                    ? `Could not start: ${recordingError}`
+                    : 'Recording could not start.',
+                );
+              });
             }
           });
         }, 3200);
@@ -70,6 +116,22 @@ function Popup() {
   };
 
   const stop = () => {
+    if (phase === 'starting') {
+      cancelRequested.current = true;
+      setPhase('stopping');
+      setStatus('Canceling recording countdown…');
+      void stopRecording().then((response) => {
+        if (response.ok) {
+          cancelCompleted.current = true;
+          setPhase('idle');
+          setStatus('Recording countdown canceled.');
+        } else if (response.code !== 'NO_SESSION') {
+          setPhase('starting');
+          setStatus(`Could not cancel: ${response.error}`);
+        }
+      });
+      return;
+    }
     setPhase('stopping');
     setStatus('Finalizing local media…');
     void stopRecording()
@@ -94,7 +156,7 @@ function Popup() {
       <div className="popup-head">
         <span className="brand-mark">OT</span>
         <div>
-          <strong>OpenTake</strong>
+          <h1>OpenTake</h1>
           <small>local tab recorder</small>
         </div>
         <span
@@ -111,7 +173,7 @@ function Popup() {
         type="button"
         className="record-button"
         onClick={isActive ? stop : start}
-        disabled={isBusy}
+        disabled={isBusy || recordingUnavailable}
       >
         <span className="record-circle" />
         {phase === 'recording'

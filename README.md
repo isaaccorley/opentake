@@ -1,6 +1,6 @@
 # OpenTake
 
-OpenTake is a local-first Chromium extension for recording browser tabs and editing polished screen videos without an account, backend, or upload path.
+OpenTake is a local-first browser extension for recording browser tabs and editing screen videos without an account, backend, or upload path.
 
 <p>
   <a href="https://github.com/isaaccorley/opentake/releases"><img alt="Download developer build" src="https://img.shields.io/badge/Download-developer_build-D4F36A?style=for-the-badge&logo=github&logoColor=101112"></a>
@@ -8,7 +8,7 @@ OpenTake is a local-first Chromium extension for recording browser tabs and edit
 </p>
 
 > [!IMPORTANT]
-> OpenTake is an early scaffold. The project model, time-remapping core, extension surfaces, and editor shell are under active construction; recording and export are not production-ready yet.
+> OpenTake is an early scaffold. The project model, time-remapping core, extension surfaces, and editor shell are still under construction. Recording and export are not production-ready yet.
 
 ## Principles
 
@@ -16,10 +16,10 @@ OpenTake is a local-first Chromium extension for recording browser tabs and edit
 - Store every edit and interaction in source time. Output time is derived by one exact, testable time map.
 - Keep media in OPFS and project metadata in extension storage. No network service is required.
 - Make preview and export use the same deterministic compositor.
-- Offer a compatibility export and better-compression choices: H.264/AAC in MP4, plus VP9 or AV1 with Opus in WebM when WebCodecs reports support.
+- Offer a compatibility export and higher-compression choices. These include H.264/AAC in MP4, plus VP9 or AV1 with Opus in WebM when WebCodecs reports support.
 - Never record key values, page text, or browsing URLs.
 
-See [Architecture](docs/architecture.md), [Privacy](docs/privacy.md), [Contributing](CONTRIBUTING.md), and [Releasing](docs/RELEASING.md).
+See [Architecture](docs/architecture.md), [Demo automation](docs/demo-automation.md), [Privacy](docs/privacy.md), [Contributing](CONTRIBUTING.md), and [Releasing](docs/RELEASING.md).
 
 ## Install locally
 
@@ -45,9 +45,11 @@ bun run build
 
 Then follow steps 2–4 above and select `dist/`.
 
+For the Firefox package, run `bun run build:firefox`, open `about:debugging`, choose **This Firefox**, and load `dist-firefox/manifest.json` as a temporary add-on. Temporary add-ons are removed when Firefox restarts.
+
 ## Development
 
-Requirements: Bun 1.4 or newer, Node.js 22.12 or newer, and Chrome 116 or newer.
+Requirements: Bun 1.4 or newer, Node.js 22.12 or newer, Chrome 116 or newer, or Firefox 140 or newer.
 
 ```sh
 bun install
@@ -62,7 +64,7 @@ bun run check
 
 ## Scope
 
-The first release targets Chrome, Edge, and Brave through Manifest V3. Firefox, cloud sync, accounts, webcam overlays, multi-clip timelines, and desktop capture are outside the v1 scope.
+The first release targets Chrome, Edge, Brave, and Firefox through their Manifest V3-compatible extension APIs. The repository produces and lints separate Chromium and Firefox packages. Chromium tab recording is implemented; Firefox tab capture still needs its browser-specific capture adapter before release. Cloud sync, accounts, webcam overlays, multi-clip timelines, and desktop capture are outside the v1 scope.
 
 ## License
 

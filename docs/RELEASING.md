@@ -1,6 +1,6 @@
 # Releasing OpenTake
 
-OpenTake has two distribution paths: GitHub developer builds for manual local installation, and the Chrome Web Store for normal one-click installation and automatic updates.
+OpenTake has three distribution paths: GitHub developer builds for manual local installation, the Chrome Web Store, and Firefox Add-ons (AMO).
 
 ## Readiness gate
 
@@ -11,6 +11,7 @@ Do not submit the current scaffold to the Chrome Web Store yet. Complete and ver
 - Extension icons and Chrome Web Store screenshots and promotional artwork.
 - A public URL for the privacy policy, plus an in-product disclosure and consent review.
 - Chrome Web Store data-use declarations and narrow permission justifications matching actual behavior.
+- Firefox capture-adapter tests, AMO listing assets, and Firefox data-collection declarations.
 
 ## Publish a GitHub developer build
 
@@ -26,7 +27,7 @@ git tag vX.Y.Z
 git push origin main vX.Y.Z
 ```
 
-Replace `X.Y.Z` with the intended version in every command. The tag must match the package version exactly. The release workflow runs all gates, builds the extension, creates `opentake-vX.Y.Z.zip` with `manifest.json` at the archive root, generates a SHA-256 checksum, and attaches both files to a GitHub release.
+Replace `X.Y.Z` with the intended version in every command. The tag must match the package version exactly. The release workflow runs all gates and builds separate Chromium and Firefox archives with `manifest.json` at each archive root. It generates SHA-256 checksums and attaches all four files to the GitHub release.
 
 Users download and extract that ZIP, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder.
 
@@ -41,3 +42,7 @@ Users download and extract that ZIP, open `chrome://extensions`, enable **Develo
 7. After approval, replace the README developer-build button with the [official Chrome Web Store badge](https://developer.chrome.com/docs/webstore/branding) linked to the listing.
 
 The Web Store listing is the supported route for a true one-click **Add to Chrome** button and automatic updates on ordinary Chrome installations.
+
+## Publish to Firefox Add-ons
+
+Do not submit the Firefox package until its capture adapter passes the readiness gate. When ready, create an AMO developer account, upload the Firefox ZIP from the GitHub release, complete the source-code and data-collection declarations, and submit it for review. OpenTake declares `required: ["none"]` because it does not transmit recordings or interaction data outside the add-on.

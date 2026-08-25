@@ -11,6 +11,7 @@ import {
 } from './protocol';
 
 const store = createOpfsStore();
+let resolveOffscreenReady: (() => void) | undefined;
 
 function isSerializedEventLog(
   value: unknown,
@@ -46,6 +47,13 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
   }
 
   if (message.type === 'START_RECORDING') {
+    if (import.meta.env.MODE === 'firefox') {
+      return {
+        ok: false,
+        code: 'UNSUPPORTED',
+        error: 'Firefox tab capture is not implemented yet.',
+      };
+    }
     const sessionId = crypto.randomUUID();
     const marker: RecordingSessionMarker = {
       id: sessionId,
@@ -57,12 +65,13 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
       mimeType: null,
       finalized: false,
     };
+    await chrome.storage.local.remove('recordingError');
     await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: marker });
     try {
       await ensureOffscreen();
       await chrome.runtime.sendMessage({
         type: 'OFFSCREEN_START',
-        sessionId,
+        session: marker,
         streamId: message.streamId,
         countdownMs: message.countdownMs ?? 0,
       } satisfies RuntimeMessage);
@@ -141,6 +150,10 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
 
   if (message.type === 'OFFSCREEN_FAILED') {
     await chrome.storage.local.set({ recordingError: message.error });
+    const session = await getSession();
+    if (session?.id === message.sessionId) {
+      await chrome.storage.local.remove(SESSION_STORAGE_KEY);
+    }
     return { ok: false, error: message.error };
   }
 
@@ -148,15 +161,33 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
 }
 
 async function ensureOffscreen(): Promise<void> {
+  if (import.meta.env.MODE === 'firefox') {
+    throw new Error('Offscreen recording is unavailable in Firefox');
+  }
   const existing = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
   });
-  if (existing.length === 0) {
-    await chrome.offscreen.createDocument({
-      url: 'offscreen.html',
-      reasons: ['USER_MEDIA'],
-      justification: 'Record tab media while the service worker is suspended.',
-    });
+  if (existing.length > 0) return;
+  const ready = new Promise<void>((resolve) => {
+    resolveOffscreenReady = resolve;
+  });
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['USER_MEDIA'],
+    justification: 'Record tab media while the service worker is suspended.',
+  });
+  try {
+    await Promise.race([
+      ready,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(
+          () => reject(new Error('Offscreen recorder did not become ready')),
+          2000,
+        );
+      }),
+    ]);
+  } finally {
+    resolveOffscreenReady = undefined;
   }
 }
 
@@ -174,6 +205,16 @@ async function injectCollector(tabId: number, epochMs: number): Promise<void> {
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (!isRuntimeMessage(message)) return false;
+    if (message.type === 'OFFSCREEN_READY') {
+      resolveOffscreenReady?.();
+      return false;
+    }
+    if (
+      message.type === 'OFFSCREEN_START' ||
+      message.type === 'OFFSCREEN_STOP'
+    ) {
+      return false;
+    }
     responseFor(message)
       .then(sendResponse)
       .catch((error: unknown) =>

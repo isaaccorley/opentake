@@ -11,12 +11,13 @@
   gap: 10px;
 }
 
-.popup-head strong,
+.popup-head h1,
 .popup-head small {
   display: block;
 }
 
-.popup-head strong {
+.popup-head h1 {
+  margin: 0;
   font-size: 14px;
 }
 

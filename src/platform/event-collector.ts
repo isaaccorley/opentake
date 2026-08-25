@@ -33,6 +33,8 @@ export function installEventCollector(
   const timeOriginMs = clock.timeOriginMs ?? performance.timeOrigin;
   const now = clock.nowMs ?? (() => performance.timeOrigin + performance.now());
   const relativeNow = () => Math.max(0, (now() - clock.epochMs) / 1000);
+  const eventTime = (timeStamp: number) =>
+    sourceTimeSec(clock.epochMs, timeStamp, timeOriginMs);
   const log: SerializedEventLog = {
     epochMs: clock.epochMs,
     cursor: [],
@@ -60,7 +62,7 @@ export function installEventCollector(
     const height = Math.max(1, document.documentElement.clientHeight);
     for (const item of events) {
       log.cursor.push(
-        sourceTimeSec(clock.epochMs, item.timeStamp, timeOriginMs),
+        eventTime(item.timeStamp),
         normalized(item.clientX, width),
         normalized(item.clientY, height),
       );
@@ -76,7 +78,7 @@ export function installEventCollector(
   };
   const pointerDown = (event: PointerEvent) => {
     log.clicks.push({
-      t: sourceTimeSec(clock.epochMs, event.timeStamp, timeOriginMs),
+      t: eventTime(event.timeStamp),
       x: normalized(event.clientX, innerWidth),
       y: normalized(event.clientY, innerHeight),
       button: event.button,
@@ -84,9 +86,7 @@ export function installEventCollector(
   };
   const pointerUp = () => flush();
   const key = (event: KeyboardEvent) => {
-    log.keyMarks.push(
-      sourceTimeSec(clock.epochMs, event.timeStamp, timeOriginMs),
-    );
+    log.keyMarks.push(eventTime(event.timeStamp));
   };
   const viewport = () => {
     log.viewport.push({ t: relativeNow(), w: innerWidth, h: innerHeight });

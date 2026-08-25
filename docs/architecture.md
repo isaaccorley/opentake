@@ -14,7 +14,7 @@ The renderer is deterministic for a source frame, project document, and output t
 
 All edit data is keyed by source time `tau`. Trims remove source intervals, and speed segments define a piecewise-constant rate over retained source time. `TimeMap` computes both `source -> output` and its exact piecewise inverse. Output frame iteration never numerically searches for a source timestamp.
 
-This boundary is deliberate: storing a zoom or event in output time would make later speed edits silently move it.
+Keeping edits in source time prevents later speed edits from moving a zoom or event.
 
 ## Runtime boundaries
 
@@ -23,7 +23,9 @@ This boundary is deliberate: storing a zoom or event in output time would make l
 - `src/editor/`: editor state and UI. It mutates the project document and asks the renderer for preview frames.
 - `src/popup/`: user-gesture entry point for starting a tab recording.
 
-The service worker is a stateless message router. The offscreen document owns a recording so MV3 worker suspension cannot destroy live state. A persisted session marker supports recovery after worker restart or an unclean recording stop.
+In Chromium, the service worker is a stateless message router. An offscreen document owns each recording so MV3 worker suspension cannot destroy live state. A persisted session marker supports recovery after worker restart or an unclean recording stop.
+
+Firefox uses an event-page background script and does not implement Chromium's `offscreen` or `tabCapture` APIs. Its capture adapter will use Firefox's display-capture flow while preserving the same OPFS media, event-log, and editor contracts. The Firefox package omits unsupported permissions and is linted separately.
 
 ## Export architecture
 
@@ -46,4 +48,4 @@ Mediabunny provides one local mux/demux boundary for MP4 and WebM. WebCodecs per
 5. Editing: trims, zoom generation/editing, speed segments, and audio stretching.
 6. Look and export: reframing, presentation controls, MP4/WebM encoding, progress, and cancellation.
 
-Each milestone must meet its acceptance checks before the next one expands the surface area.
+Each milestone must meet its acceptance checks before the next one adds scope.

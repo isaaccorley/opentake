@@ -1,6 +1,6 @@
 # Contributing
 
-OpenTake is intentionally early. Please open an issue before starting a large feature so the project document and render contracts remain coherent.
+OpenTake is still early. Please open an issue before starting a large feature so the project document and render contracts stay aligned.
 
 ## Ground rules
 

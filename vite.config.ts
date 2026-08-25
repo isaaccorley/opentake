@@ -5,15 +5,21 @@ import { defineConfig } from 'vite';
 
 import manifest from './manifest.config.ts';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), crx({ manifest })],
   build: {
+    outDir:
+      mode === 'e2e'
+        ? 'dist-e2e'
+        : mode === 'firefox'
+          ? 'dist-firefox'
+          : 'dist',
     rollupOptions: {
       input: {
         editor: 'editor.html',
-        offscreen: 'offscreen.html',
         popup: 'popup.html',
+        ...(mode === 'firefox' ? {} : { offscreen: 'offscreen.html' }),
       },
     },
   },
-});
+}));

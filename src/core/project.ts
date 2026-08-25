@@ -3,6 +3,22 @@ import { z } from 'zod';
 const finiteNumber = z.number().finite();
 const nonNegative = finiteNumber.nonnegative();
 
+function isSortedNonOverlapping(
+  values: { start: number; end: number }[],
+): boolean {
+  return values.every((value, index) => {
+    const previous = values[index - 1];
+    return previous === undefined || value.start >= previous.end;
+  });
+}
+
+function isChronological(values: number[]): boolean {
+  return values.every((value, index) => {
+    const previous = values[index - 1];
+    return previous === undefined || value >= previous;
+  });
+}
+
 export type Interval = { start: number; end: number };
 export type SpeedSegment = { start: number; end: number; rate: number };
 export type ZoomKeyframe = {
@@ -222,30 +238,20 @@ export const ProjectDocSchema = z
     export: exportSchema,
   })
   .superRefine((doc, c) => {
-    const sorted = (xs: { start: number; end: number }[]) =>
-      xs.every((item, index) => {
-        const previous = xs[index - 1];
-        return previous === undefined || item.start >= previous.end;
-      });
-    const chronological = (times: number[]) =>
-      times.every((time, index) => {
-        const previous = times[index - 1];
-        return previous === undefined || time >= previous;
-      });
     const inSource = (time: number) => time <= doc.source.durationSec;
-    if (!sorted(doc.edit.trims))
+    if (!isSortedNonOverlapping(doc.edit.trims))
       c.addIssue({
         code: 'custom',
         path: ['edit', 'trims'],
         message: 'trims must be sorted and non-overlapping',
       });
-    if (!sorted(doc.edit.speed))
+    if (!isSortedNonOverlapping(doc.edit.speed))
       c.addIssue({
         code: 'custom',
         path: ['edit', 'speed'],
         message: 'speed segments must be sorted and non-overlapping',
       });
-    if (!chronological(doc.edit.zooms.map((zoom) => zoom.t)))
+    if (!isChronological(doc.edit.zooms.map((zoom) => zoom.t)))
       c.addIssue({
         code: 'custom',
         path: ['edit', 'zooms'],
@@ -306,7 +312,7 @@ export const ProjectDocSchema = z
           message: 'cursor coordinates must be normalized',
         });
     }
-    if (!chronological(cursorTimes))
+    if (!isChronological(cursorTimes))
       c.addIssue({
         code: 'custom',
         path: ['events', 'cursor'],
@@ -319,7 +325,7 @@ export const ProjectDocSchema = z
       ['viewport', doc.events.viewport.map((event) => event.t)],
     ];
     for (const [name, times] of eventGroups) {
-      if (!chronological(times))
+      if (!isChronological(times))
         c.addIssue({
           code: 'custom',
           path: ['events', name],
@@ -332,7 +338,7 @@ export const ProjectDocSchema = z
           message: `${name} exceeds source duration`,
         });
     }
-    if (!sorted(doc.events.blurIntervals))
+    if (!isSortedNonOverlapping(doc.events.blurIntervals))
       c.addIssue({
         code: 'custom',
         path: ['events', 'blurIntervals'],

@@ -32,11 +32,12 @@ export type RuntimeMessage =
   | { type: 'RECORDING_STATUS' }
   | {
       type: 'OFFSCREEN_START';
-      sessionId: string;
+      session: RecordingSessionMarker;
       streamId: string;
       countdownMs: number;
     }
   | { type: 'OFFSCREEN_STOP' }
+  | { type: 'OFFSCREEN_READY' }
   | {
       type: 'OFFSCREEN_RECORDING_STARTED';
       sessionId: string;
@@ -81,7 +82,10 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
       );
     case 'OFFSCREEN_START':
       return (
-        typeof message.sessionId === 'string' &&
+        typeof message.session === 'object' &&
+        message.session !== null &&
+        'id' in message.session &&
+        typeof message.session.id === 'string' &&
         typeof message.streamId === 'string' &&
         typeof message.countdownMs === 'number'
       );
@@ -106,6 +110,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case 'STOP_RECORDING':
     case 'RECORDING_STATUS':
     case 'OFFSCREEN_STOP':
+    case 'OFFSCREEN_READY':
     case 'COLLECTOR_STOP':
       return true;
     default:

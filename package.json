@@ -12,17 +12,24 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:e2e": "tsc --noEmit && vite build --mode e2e",
+    "build:firefox": "tsc --noEmit && vite build --mode firefox",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "fix": "biome check --write .",
     "check:biome": "biome ci .",
+    "check:extension": "bun scripts/check-extension.ts",
+    "check:bundle": "bun scripts/check-bundle-budget.ts",
+    "check:firefox": "bun run build:firefox && bun scripts/check-firefox.ts",
+    "dead-code": "knip --include files,dependencies,unlisted,unresolved",
+    "audit": "bun audit --audit-level=high",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "bun run build && playwright test",
-    "check": "bun run check:biome && bun run typecheck && bun run test && bun run build"
+    "test:e2e": "bun run build:e2e && playwright test",
+    "check": "bun run check:biome && bun run typecheck && bun run test && bun run dead-code && bun run build && bun run check:extension && bun run check:bundle && bun run check:firefox"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
@@ -34,6 +41,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.10",
     "@crxjs/vite-plugin": "^2.7.1",
     "@playwright/test": "^1.62.1",
@@ -46,6 +54,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "fast-check": "^4.9.0",
     "jsdom": "^30.0.1",
+    "knip": "6.32.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
