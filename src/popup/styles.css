@@ -1,0 +1,99 @@
+.popup {
+  width: 320px;
+  min-height: 250px;
+  padding: 20px;
+  background: #151617;
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popup-head strong,
+.popup-head small {
+  display: block;
+}
+
+.popup-head strong {
+  font-size: 14px;
+}
+
+.popup-head small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.record-dot {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #50565a;
+}
+
+.record-dot.live {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px #f06c6925;
+}
+
+.popup-rule {
+  height: 1px;
+  margin: 18px 0 14px;
+  background: var(--line);
+}
+
+.popup-status {
+  min-height: 34px;
+  margin: 0 0 15px;
+  color: #c1c6c8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.record-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px;
+  gap: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.record-circle {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.record-button:disabled {
+  opacity: 0.65;
+}
+
+.popup-note {
+  margin: 12px 0 17px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.open-editor {
+  width: 100%;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: #c8ced0;
+  font-size: 11px;
+  text-align: left;
+}
+
+.open-editor span {
+  float: right;
+  color: var(--accent);
+  font-size: 15px;
+}
