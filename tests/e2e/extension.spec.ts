@@ -44,7 +44,9 @@ test('loads the popup and editor from the unpacked extension', async ({
   await expect(
     popup.getByText('No page text, URLs, or key values'),
   ).toBeVisible();
-  await popup.screenshot({ path: testInfo.outputPath('popup.png') });
+  if (process.env.OPENTAKE_CAPTURE_SCREENSHOTS === '1') {
+    await popup.screenshot({ path: testInfo.outputPath('popup.png') });
+  }
 
   const editor = await context.newPage();
   await editor.setViewportSize({ width: 1440, height: 900 });
@@ -59,5 +61,7 @@ test('loads the popup and editor from the unpacked extension', async ({
   await expect(
     editor.getByRole('button', { name: 'Export renderer not wired yet' }),
   ).toBeDisabled();
-  await editor.screenshot({ path: testInfo.outputPath('editor.png') });
+  if (process.env.OPENTAKE_CAPTURE_SCREENSHOTS === '1') {
+    await editor.screenshot({ path: testInfo.outputPath('editor.png') });
+  }
 });
