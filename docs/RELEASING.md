@@ -14,18 +14,19 @@ Do not submit the current scaffold to the Chrome Web Store yet. Complete and ver
 
 ## Publish a GitHub developer build
 
-The package version is the single source of truth for both `package.json` and the generated extension manifest. Choose a semantic version and update it without creating npm's automatic tag:
+The package version is the single source of truth for both `package.json` and the generated extension manifest. Choose a semantic version and set it explicitly so the release keeps the project's Conventional Commit format:
 
 ```sh
-pnpm version patch --no-git-tag-version
-pnpm check
-git add package.json pnpm-lock.yaml
+bun pm pkg set version=X.Y.Z
+bun install --lockfile-only
+bun run check
+git add package.json bun.lock
 git commit -m "chore: release vX.Y.Z"
 git tag vX.Y.Z
 git push origin main vX.Y.Z
 ```
 
-Replace `X.Y.Z` with the version written by `pnpm version`. The tag must match it exactly. The release workflow runs all gates, builds the extension, creates `opentake-vX.Y.Z.zip` with `manifest.json` at the archive root, generates a SHA-256 checksum, and attaches both files to a GitHub release.
+Replace `X.Y.Z` with the intended version in every command. The tag must match the package version exactly. The release workflow runs all gates, builds the extension, creates `opentake-vX.Y.Z.zip` with `manifest.json` at the archive root, generates a SHA-256 checksum, and attaches both files to a GitHub release.
 
 Users download and extract that ZIP, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder.
 

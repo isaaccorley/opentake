@@ -4,8 +4,9 @@
   "private": true,
   "description": "Local-first screen recorder and non-destructive video editor for Chromium browsers.",
   "type": "module",
-  "packageManager": "pnpm@11.19.0",
+  "packageManager": "bun@1.4.0",
   "engines": {
+    "bun": ">=1.4.0",
     "node": ">=22.12.0"
   },
   "scripts": {
@@ -18,8 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "pnpm build && playwright test",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "test:e2e": "bun run build && playwright test",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

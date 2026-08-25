@@ -36,28 +36,28 @@ Unpacked extensions do not update automatically. Download and load a newer build
 
 ### From source
 
-Requirements: Node.js 22.12 or newer and pnpm 11.
+Requirements: Bun 1.4 or newer and Node.js 22.12 or newer.
 
 ```sh
-pnpm install
-pnpm build
+bun install
+bun run build
 ```
 
 Then follow steps 2–4 above and select `dist/`.
 
 ## Development
 
-Requirements: Node.js 22.12 or newer, pnpm 11, and Chrome 116 or newer.
+Requirements: Bun 1.4 or newer, Node.js 22.12 or newer, and Chrome 116 or newer.
 
 ```sh
-pnpm install
-pnpm dev
+bun install
+bun run dev
 ```
 
 Run the full local gate with:
 
 ```sh
-pnpm check
+bun run check
 ```
 
 ## Scope

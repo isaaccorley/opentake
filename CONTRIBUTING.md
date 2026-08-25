@@ -14,14 +14,14 @@ OpenTake is intentionally early. Please open an issue before starting a large fe
 Before submitting a change, run:
 
 ```sh
-pnpm check
+bun run check
 ```
 
 The unpacked-extension test also needs Playwright's Chromium build:
 
 ```sh
-pnpm exec playwright install chromium
-pnpm test:e2e
+bunx playwright install chromium
+bun run test:e2e
 ```
 
 Commits use Conventional Commits with a short subject, for example `fix: preserve zoom timing across cuts`.
