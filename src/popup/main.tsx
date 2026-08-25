@@ -98,6 +98,7 @@ function Popup() {
           <small>local tab recorder</small>
         </div>
         <span
+          role="img"
           className={`record-dot ${isActive ? 'live' : ''}`}
           aria-label={isActive ? 'Recording' : 'Idle'}
         />
@@ -107,6 +108,7 @@ function Popup() {
         {status}
       </p>
       <button
+        type="button"
         className="record-button"
         onClick={isActive ? stop : start}
         disabled={isBusy}
@@ -124,6 +126,7 @@ function Popup() {
         Video stays on this device. No page text, URLs, or key values are saved.
       </p>
       <button
+        type="button"
         className="open-editor"
         onClick={() => {
           void chrome.tabs.create({
@@ -137,4 +140,6 @@ function Popup() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Popup />);
+const root = document.getElementById('root');
+if (!root) throw new Error('Popup root element is missing');
+createRoot(root).render(<Popup />);

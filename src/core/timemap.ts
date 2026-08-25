@@ -20,7 +20,8 @@ function assertOrderedIntervals(intervals: Interval[], label: string): void {
         `${label} must contain finite, positive-length source ranges`,
       );
     }
-    if (index > 0 && interval.start < intervals[index - 1]!.end) {
+    const previous = intervals[index - 1];
+    if (previous !== undefined && interval.start < previous.end) {
       throw new RangeError(`${label} must be sorted and non-overlapping`);
     }
   });

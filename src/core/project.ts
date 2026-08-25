@@ -223,9 +223,15 @@ export const ProjectDocSchema = z
   })
   .superRefine((doc, c) => {
     const sorted = (xs: { start: number; end: number }[]) =>
-      xs.every((x, i) => i === 0 || x.start >= xs[i - 1]!.end);
+      xs.every((item, index) => {
+        const previous = xs[index - 1];
+        return previous === undefined || item.start >= previous.end;
+      });
     const chronological = (times: number[]) =>
-      times.every((time, index) => index === 0 || time >= times[index - 1]!);
+      times.every((time, index) => {
+        const previous = times[index - 1];
+        return previous === undefined || time >= previous;
+      });
     const inSource = (time: number) => time <= doc.source.durationSec;
     if (!sorted(doc.edit.trims))
       c.addIssue({
@@ -268,9 +274,17 @@ export const ProjectDocSchema = z
         });
     const cursorTimes: number[] = [];
     for (let index = 0; index < doc.events.cursor.length; index += 3) {
-      const time = doc.events.cursor[index]!;
-      const x = doc.events.cursor[index + 1]!;
-      const y = doc.events.cursor[index + 2]!;
+      const time = doc.events.cursor[index];
+      const x = doc.events.cursor[index + 1];
+      const y = doc.events.cursor[index + 2];
+      if (time === undefined || x === undefined || y === undefined) {
+        c.addIssue({
+          code: 'custom',
+          path: ['events', 'cursor', index],
+          message: 'cursor must contain complete time/x/y triples',
+        });
+        break;
+      }
       cursorTimes.push(time);
       if (!Number.isFinite(time) || time < 0 || !inSource(time))
         c.addIssue({
@@ -339,7 +353,12 @@ export function validateProjectDoc(value: unknown): ProjectDoc {
 }
 
 type JsonValue =
-  null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 function toJson(value: unknown): JsonValue {
   if (value instanceof Float32Array)
     return { $type: 'Float32Array', values: Array.from(value) };

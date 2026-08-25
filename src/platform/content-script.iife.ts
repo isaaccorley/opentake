@@ -1,4 +1,4 @@
-import { installEventCollector, type EventCollector } from './event-collector';
+import { type EventCollector, installEventCollector } from './event-collector';
 import { isRuntimeMessage } from './protocol';
 
 type CollectorGlobal = typeof globalThis & {

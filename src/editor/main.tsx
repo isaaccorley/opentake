@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useProjectStore } from './store';
 import {
-  probeExportCapabilities,
   type ExportCodec,
+  probeExportCapabilities,
 } from '../platform/export-capabilities';
+import { useProjectStore } from './store';
 import '../styles.css';
 import './styles.css';
 
 const placeholderDuration = 92.4;
 const ticks = Array.from({ length: 12 }, (_, i) => i);
-const waveform = Array.from(
-  { length: 160 },
-  (_, i) => 8 + ((i * 17) % 23) + Math.abs(Math.sin(i / 5) * 13),
-);
+const waveform = Array.from({ length: 160 }, (_, index) => ({
+  id: `wave-${index}`,
+  height: 8 + ((index * 17) % 23) + Math.abs(Math.sin(index / 5) * 13),
+}));
 function tc(seconds: number) {
   const m = Math.floor(seconds / 60)
     .toString()
@@ -92,6 +92,7 @@ function App() {
         </div>
         <div className="transport">
           <button
+            type="button"
             className="icon-button"
             onClick={undo}
             disabled={!past.length}
@@ -100,6 +101,7 @@ function App() {
             ↶
           </button>
           <button
+            type="button"
             className="icon-button"
             onClick={redo}
             disabled={!future.length}
@@ -108,6 +110,7 @@ function App() {
             ↷
           </button>
           <button
+            type="button"
             className={`play-button ${playing ? 'is-playing' : ''}`}
             onClick={() => setPlaying((p) => !p)}
             aria-label={playing ? 'Pause' : 'Play'}
@@ -120,7 +123,11 @@ function App() {
         </div>
         <div className="top-actions">
           <span className="source-meta">{sourceLabel} · 30 fps</span>
-          <button className="export-top" onClick={() => setPanel('Export')}>
+          <button
+            type="button"
+            className="export-top"
+            onClick={() => setPanel('Export')}
+          >
             Export
           </button>
         </div>
@@ -161,6 +168,7 @@ function App() {
           <div className="inspector-tabs">
             {(['Trim', 'Zoom', 'Speed', 'Export'] as const).map((name) => (
               <button
+                type="button"
                 key={name}
                 className={panel === name ? 'active' : ''}
                 onClick={() => setPanel(name)}
@@ -182,7 +190,11 @@ function App() {
                   <input defaultValue={tc(duration)} />
                 </label>
               </div>
-              <button className="secondary-button" onClick={updateTrim}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={updateTrim}
+              >
                 Set range to full source
               </button>
               <p className="hint">
@@ -249,8 +261,12 @@ function App() {
             </span>
           </div>
           <div className="timeline-actions">
-            <button onClick={() => setTime(0)}>Home</button>
-            <button onClick={() => setTime(duration)}>End</button>
+            <button type="button" onClick={() => setTime(0)}>
+              Home
+            </button>
+            <button type="button" onClick={() => setTime(duration)}>
+              End
+            </button>
             <span className="snap">⌁ Snap on</span>
           </div>
         </div>
@@ -306,8 +322,8 @@ function App() {
               <span className="clip-range">00:00:00 — {tc(duration)}</span>
             </div>
             <div className="wave-track">
-              {waveform.map((height, i) => (
-                <i key={i} style={{ height: `${height}px` }} />
+              {waveform.map((bar) => (
+                <i key={bar.id} style={{ height: `${bar.height}px` }} />
               ))}
             </div>
             <div className="zoom-track">
@@ -440,7 +456,7 @@ function ExportPanel() {
           max={rateControl === 'quality' ? '100' : '200'}
         />
       </label>
-      <button className="export-button" disabled>
+      <button type="button" className="export-button" disabled>
         Export renderer not wired yet
       </button>
       <p className="hint">
@@ -451,4 +467,6 @@ function ExportPanel() {
     </div>
   );
 }
-createRoot(document.getElementById('root')!).render(<App />);
+const root = document.getElementById('root');
+if (!root) throw new Error('Editor root element is missing');
+createRoot(root).render(<App />);

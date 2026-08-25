@@ -17,6 +17,13 @@ Before submitting a change, run:
 bun run check
 ```
 
+Biome owns formatting, import organization, and linting. Apply its safe fixes
+with:
+
+```sh
+bun run fix
+```
+
 The unpacked-extension test also needs Playwright's Chromium build:
 
 ```sh

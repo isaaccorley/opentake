@@ -98,7 +98,7 @@
 }
 .canvas-frame {
   width: min(84%, 820px);
-  aspect-ratio: 16/9;
+  aspect-ratio: 16 / 9;
   background: #d6d7d4;
   box-shadow: 0 15px 40px #0008;
   color: #222;
@@ -429,7 +429,7 @@
   pointer-events: none;
 }
 .playhead:before {
-  content: '';
+  content: "";
   position: absolute;
   top: -4px;
   left: -4px;

@@ -3,10 +3,10 @@ import { createOpfsStore } from './opfs';
 import {
   isRuntimeMessage,
   LAST_RECORDING_STORAGE_KEY,
-  SESSION_STORAGE_KEY,
   type RecordingSessionMarker,
   type RuntimeMessage,
   type RuntimeResponse,
+  SESSION_STORAGE_KEY,
   type SerializedEventLog,
 } from './protocol';
 

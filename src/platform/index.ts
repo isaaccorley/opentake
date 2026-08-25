@@ -25,8 +25,8 @@ export async function recordingStatus(): Promise<RuntimeResponse> {
 export { probeExportCapabilities } from './export-capabilities';
 export { createOpfsStore, OpfsQuotaError, OpfsStore } from './opfs';
 export type {
+  RecordingSessionMarker,
   RuntimeMessage,
   RuntimeResponse,
-  RecordingSessionMarker,
   SerializedEventLog,
 } from './protocol';

@@ -1,9 +1,9 @@
 import { createOpfsStore, type OpfsWriter } from './opfs';
 import {
   isRuntimeMessage,
-  SESSION_STORAGE_KEY,
   type RecordingSessionMarker,
   type RuntimeMessage,
+  SESSION_STORAGE_KEY,
 } from './protocol';
 
 type ActiveRecording = {
@@ -51,7 +51,8 @@ async function start(
 
   const stored = await chrome.storage.local.get(SESSION_STORAGE_KEY);
   const session = stored[SESSION_STORAGE_KEY] as
-    RecordingSessionMarker | undefined;
+    | RecordingSessionMarker
+    | undefined;
   if (!session || session.id !== sessionId) return;
 
   let stream: MediaStream | undefined;
@@ -95,7 +96,9 @@ async function start(
       mimeType: recorder.mimeType,
     } satisfies RuntimeMessage);
   } catch (error) {
-    stream?.getTracks().forEach((track) => track.stop());
+    stream?.getTracks().forEach((track) => {
+      track.stop();
+    });
     await writer?.abort().catch(() => undefined);
     await reportFailure(sessionId, error);
   }
@@ -111,7 +114,9 @@ async function finalize(recording: ActiveRecording): Promise<void> {
     await recording.writer.close();
     const durationSec =
       (performance.timeOrigin + performance.now() - recording.epochMs) / 1000;
-    recording.stream.getTracks().forEach((track) => track.stop());
+    recording.stream.getTracks().forEach((track) => {
+      track.stop();
+    });
     active = undefined;
     await chrome.runtime.sendMessage({
       type: 'OFFSCREEN_FINALIZED',
@@ -120,7 +125,9 @@ async function finalize(recording: ActiveRecording): Promise<void> {
     } satisfies RuntimeMessage);
   } catch (error) {
     await recording.writer.abort().catch(() => undefined);
-    recording.stream.getTracks().forEach((track) => track.stop());
+    recording.stream.getTracks().forEach((track) => {
+      track.stop();
+    });
     active = undefined;
     await reportFailure(recording.session.id, error);
   }

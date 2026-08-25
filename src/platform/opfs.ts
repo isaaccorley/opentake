@@ -95,9 +95,7 @@ export class OpfsStore {
   async openWriter(key: string): Promise<OpfsWriter> {
     validateKey(key);
     try {
-      const handle = await (
-        await this.directory()
-      ).getFileHandle(key, {
+      const handle = await (await this.directory()).getFileHandle(key, {
         create: true,
       });
       const writable = await handle.createWritable();
