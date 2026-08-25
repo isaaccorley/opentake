@@ -12,6 +12,7 @@ const extensionPath = resolve(import.meta.dirname, '../../dist');
 
 let context: BrowserContext;
 let extensionId: string;
+let sentinelPage: Page;
 
 function extensionUrl(path: string): string {
   return `chrome-extension://${extensionId}/${path}`;
@@ -51,6 +52,7 @@ test.beforeAll(async ({ browserName }, testInfo) => {
       ],
     },
   );
+  sentinelPage = context.pages()[0] ?? (await context.newPage());
   const worker =
     context.serviceWorkers()[0] ??
     (await context.waitForEvent('serviceworker', { timeout: 15_000 }));
@@ -63,7 +65,7 @@ test.afterEach(async () => {
   await Promise.all(
     context
       .pages()
-      .filter((page) => !page.isClosed())
+      .filter((page) => page !== sentinelPage && !page.isClosed())
       .map((page) => page.close()),
   );
 });
