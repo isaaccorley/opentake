@@ -1,0 +1,62 @@
+name: Bun dependencies
+
+on:
+  schedule:
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: bun-dependencies
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Grouped update
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version-file: package.json
+          no-cache: true
+      - name: Refresh dependencies within declared ranges
+        run: |
+          bun install --frozen-lockfile
+          bun update
+          bun audit
+          bun run check
+      - name: Open or refresh grouped update pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_BRANCH: automation/bun-dependencies
+        run: |
+          if git diff --quiet -- package.json bun.lock; then
+            echo 'Bun dependencies are current.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$UPDATE_BRANCH"
+          git add package.json bun.lock
+          git commit -m 'chore: update Bun dependencies'
+          gh auth setup-git
+          git push --force origin "HEAD:$UPDATE_BRANCH"
+
+          pull_request="$(gh pr list --head "$UPDATE_BRANCH" --state open --json number --jq '.[0].number')"
+          if [[ -z "$pull_request" ]]; then
+            gh pr create \
+              --base main \
+              --head "$UPDATE_BRANCH" \
+              --title 'chore: update Bun dependencies' \
+              --body 'Weekly grouped dependency refresh generated and validated with Bun.'
+          fi
