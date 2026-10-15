@@ -25,7 +25,7 @@ export type RuntimeMessage =
   | {
       type: 'START_RECORDING';
       targetTabId: number;
-      streamId: string;
+      streamId?: string;
       countdownMs?: number;
     }
   | { type: 'STOP_RECORDING' }
@@ -78,7 +78,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case 'START_RECORDING':
       return (
         typeof message.targetTabId === 'number' &&
-        typeof message.streamId === 'string'
+        (message.streamId === undefined || typeof message.streamId === 'string')
       );
     case 'OFFSCREEN_START':
       return (

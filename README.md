@@ -8,18 +8,27 @@ OpenTake is a local-first browser extension for recording browser tabs and editi
 </p>
 
 > [!IMPORTANT]
-> OpenTake is an early scaffold. The project model, time-remapping core, extension surfaces, and editor shell are still under construction. Recording and export are not production-ready yet.
+> OpenTake is a local developer build with a working single-clip studio: Chromium tab recording, video import, playback, trim, saved edits, and MP4/WebM export. It is not yet a reviewed browser-store release.
+
+## Use the studio
+
+1. Open the extension on a normal web page and choose **Record this tab**. A three-second countdown gives you time to close the popup. Tab audio is included; microphone and webcam are not captured.
+2. Reopen the extension and choose **Stop recording**. The finished clip opens in the editor. Or choose **Open editor → Import video** to edit an existing local file.
+3. Play the actual video, seek with the timeline, and use **Start video here / End video here** at the playhead. Open **Precise timing** when you need exact start/end seconds. Undo/redo restores earlier edits.
+4. Choose **Export video** to use the saved settings. **Advanced export options** reveals WebM/MP4, maximum height and original-file download. Output preserves proportions and never upscales. Keep the editor tab open during export; progress and cancellation are available.
+5. Reopen **Your videos** to continue an edit. Wait for **Saved on this device** before closing. Download the original or edited file for a backup; clearing extension data or uninstalling removes the local library.
+
+Exports use device codecs. Unsupported tracks produce an error instead of silently dropping audio. Audio encoders can add a small amount of trailing padding to the selected range. Files and edits stay on-device; there is no upload path.
 
 ## Principles
 
-- Record raw media and a timestamped interaction log. Never bake zoom, trim, speed, cursor, or styling effects into captured pixels.
-- Store every edit and interaction in source time. Output time is derived by one exact, testable time map.
-- Keep media in OPFS and project metadata in extension storage. No network service is required.
-- Make preview and export use the same deterministic compositor.
-- Offer a compatibility export and higher-compression choices. These include H.264/AAC in MP4, plus VP9 or AV1 with Opus in WebM when WebCodecs reports support.
-- Never record key values, page text, or browsing URLs.
+- Preserve source media. Trimming never rewrites the original.
+- Store trim boundaries in source time. Preview and export use the same selected range.
+- Store media and project documents in OPFS; recording session metadata stays in extension storage.
+- Only expose working tools. Automatic zoom, cursor effects, speed editing and presentation backgrounds are not part of this studio yet.
+- Never collect key values, page text, or browsing URLs as interaction metadata. Recorded pixels and tab audio naturally contain what is visible and audible in the chosen tab.
 
-See [Architecture](docs/architecture.md), [Demo automation](docs/demo-automation.md), [Privacy](docs/privacy.md), [Contributing](CONTRIBUTING.md), and [Releasing](docs/RELEASING.md).
+See [Architecture](docs/architecture.md), [Privacy](docs/privacy.md), [Contributing](CONTRIBUTING.md), and [Releasing](docs/RELEASING.md).
 
 ## Install locally
 
@@ -60,7 +69,10 @@ Run the full local gate with:
 
 ```sh
 bun run check
+bun run test:e2e
 ```
+
+Browser tests need Playwright Chromium and `ffprobe` (from FFmpeg). Run `bunx playwright install chromium` first. They cover import, playback, persistence, export tracks and duration, accessibility, recording handoff, and worker restart.
 
 ## Scope
 

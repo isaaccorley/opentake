@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// Extension CSP forbids Zod's optional runtime code generation.
+z.config({ jitless: true });
+
 const finiteNumber = z.number().finite();
 const nonNegative = finiteNumber.nonnegative();
 
@@ -19,23 +22,23 @@ function isChronological(values: number[]): boolean {
   });
 }
 
-export type Interval = { start: number; end: number };
-export type SpeedSegment = { start: number; end: number; rate: number };
-export type ZoomKeyframe = {
+type Interval = { start: number; end: number };
+type SpeedSegment = { start: number; end: number; rate: number };
+type ZoomKeyframe = {
   t: number;
   scale: number;
   mode: 'follow-cursor' | 'fixed';
   center?: { x: number; y: number };
   easing: 'ease-in-out' | 'linear';
 };
-export type Background =
+type Background =
   | { kind: 'none' }
   | { kind: 'solid'; color: string }
   | { kind: 'gradient'; from: string; to: string; angle: number }
   | { kind: 'page-sampled' }
   | { kind: 'image'; mediaKey: string };
 
-export type EventLog = {
+type EventLog = {
   epochMs: number;
   cursor: Float32Array;
   clicks: { t: number; x: number; y: number; button: number }[];
@@ -45,7 +48,7 @@ export type EventLog = {
   blurIntervals: Interval[];
 };
 
-export type ExportSettings = {
+type ExportSettings = {
   aspect: '16:9' | '9:16' | '1:1' | 'source';
   resolution: 720 | 1080 | 1440 | 2160;
   fps: 30 | 60;
@@ -60,9 +63,12 @@ export type ExportSettings = {
 export type ProjectDoc = {
   version: 1;
   id: string;
+  title?: string;
   createdAt: number;
   source: {
     mediaKey: string;
+    originalName?: string;
+    mimeType?: string;
     durationSec: number;
     width: number;
     height: number;
@@ -190,9 +196,12 @@ export const ProjectDocSchema = z
   .object({
     version: z.literal(1),
     id: z.string().min(1),
+    title: z.string().max(200).optional(),
     createdAt: finiteNumber,
     source: z.object({
       mediaKey: z.string().min(1),
+      originalName: z.string().optional(),
+      mimeType: z.string().optional(),
       durationSec: finiteNumber.positive(),
       width: finiteNumber.int().positive(),
       height: finiteNumber.int().positive(),
@@ -351,10 +360,8 @@ export const ProjectDocSchema = z
         message: 'blur interval exceeds source duration',
       });
   });
-export const EventLogSchema = eventLogSchema;
-export const projectDocSchema = ProjectDocSchema;
 
-export function validateProjectDoc(value: unknown): ProjectDoc {
+function validateProjectDoc(value: unknown): ProjectDoc {
   return ProjectDocSchema.parse(value) as ProjectDoc;
 }
 

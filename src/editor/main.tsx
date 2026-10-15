@@ -1,466 +1,479 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  type ExportCodec,
-  probeExportCapabilities,
-} from '../platform/export-capabilities';
+import type { ProjectDoc } from '../core/project';
+import { OpfsStore } from '../platform/opfs';
+import { downloadFile, type ExportJob, exportVideo } from './export';
+import { Inspector } from './inspector';
+import { importVideo, loadLibrary, projectName, saveProject } from './library';
 import { useProjectStore } from './store';
 import '../styles.css';
 import './styles.css';
 
-const placeholderDuration = 92.4;
-const ticks = Array.from({ length: 12 }, (_, i) => i);
-const waveform = Array.from({ length: 160 }, (_, index) => ({
-  id: `wave-${index}`,
-  height: 8 + ((index * 17) % 23) + Math.abs(Math.sin(index / 5) * 13),
-}));
-function tc(seconds: number) {
-  const m = Math.floor(seconds / 60)
+function timecode(seconds: number): string {
+  return `${Math.floor(seconds / 60)
     .toString()
-    .padStart(2, '0');
-  const s = Math.floor(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-  const f = Math.floor((seconds % 1) * 30)
-    .toString()
-    .padStart(2, '0');
-  return `${m}:${s}:${f}`;
+    .padStart(2, '0')}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
+}
+function message(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : 'Something went wrong. Please try again.';
 }
 
 function App() {
-  const { doc, past, future, undo, redo, updateDoc } = useProjectStore();
-  const [time, setTime] = useState(18.7);
+  const { doc, setDoc, updateDoc, undo, redo } = useProjectStore();
+  const [library, setLibrary] = useState<ProjectDoc[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [url, setUrl] = useState('');
+  const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [panel, setPanel] = useState<'Trim' | 'Zoom' | 'Speed' | 'Export'>(
-    'Trim',
-  );
-  const duration = doc?.source.durationSec ?? placeholderDuration;
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [savedDoc, setSavedDoc] = useState<ProjectDoc | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [exported, setExported] = useState(false);
+  const video = useRef<HTMLVideoElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const job = useRef<ExportJob | null>(null);
+  const saveQueue = useRef(Promise.resolve());
+  const range = doc?.edit.trims[0];
+  const start = range?.start ?? 0;
+  const end = range?.end ?? 0;
+  const locked = busy || progress !== null;
+
   useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(
-      () => setTime((t) => (t >= duration ? 0 : t + 1 / 30)),
-      33,
-    );
-    return () => window.clearInterval(id);
-  }, [duration, playing]);
+    void loadLibrary()
+      .then((docs) => {
+        setLibrary(docs);
+        const requested = new URLSearchParams(location.search).get('project');
+        const selected = docs.find((item) => item.id === requested);
+        if (selected) setDoc(selected);
+      })
+      .catch((cause: unknown) =>
+        setError(`Could not open library: ${message(cause)}`),
+      )
+      .finally(() => setBusy(false));
+  }, [setDoc]);
+
+  useEffect(() => {
+    if (!doc) return;
+    setSaveFailed(false);
+    const snapshot = doc;
+    saveQueue.current = saveQueue.current
+      .then(() => saveProject(snapshot))
+      .then(() => {
+        setLibrary((items) =>
+          [snapshot, ...items.filter((item) => item.id !== snapshot.id)].sort(
+            (a, b) => b.createdAt - a.createdAt,
+          ),
+        );
+        if (useProjectStore.getState().doc === snapshot) {
+          setSaveFailed(false);
+          setSavedDoc(snapshot);
+        }
+      })
+      .catch((cause: unknown) => {
+        setSaveFailed(true);
+        setError(`Your edits could not be saved: ${message(cause)}`);
+      });
+  }, [doc]);
+
+  useEffect(() => {
+    if (progress === null && (!doc || savedDoc === doc)) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [doc, savedDoc, progress]);
+
+  const mediaKey = doc?.source.mediaKey;
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl = '';
+    setFile(null);
+    setUrl('');
+    setPlaying(false);
+    setExported(false);
+    if (!mediaKey) return;
+    void new OpfsStore()
+      .getFile(mediaKey)
+      .then((source) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(source);
+        setFile(
+          new File([source], source.name, {
+            type:
+              useProjectStore.getState().doc?.source.mimeType ?? source.type,
+          }),
+        );
+        setUrl(objectUrl);
+      })
+      .catch((cause: unknown) =>
+        setError(`Could not load video: ${message(cause)}`),
+      );
+    return () => {
+      disposed = true;
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaKey]);
+
+  useEffect(() => {
+    const element = video.current;
+    if (
+      element &&
+      (element.currentTime < start || element.currentTime >= end)
+    ) {
+      element.currentTime = start;
+      setTime(start);
+    }
+  }, [start, end]);
+
+  const seek = useCallback(
+    (value: number) => {
+      const next = Math.max(start, Math.min(end, value));
+      if (video.current) video.current.currentTime = next;
+      setTime(next);
+    },
+    [start, end],
+  );
+  const toggle = useCallback(() => {
+    const element = video.current;
+    if (!element || locked) return;
+    if (!element.paused) element.pause();
+    else {
+      if (element.currentTime >= end - 0.03) element.currentTime = start;
+      void element.play().catch((cause: unknown) => setError(message(cause)));
+    }
+  }, [locked, start, end]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLSelectElement
+        event.target instanceof HTMLElement &&
+        (event.target.closest('input, select, textarea, button') ||
+          event.target.isContentEditable)
       )
         return;
-      if (event.key === ' ') {
-        event.preventDefault();
-        setPlaying((p) => !p);
-      }
-      if (event.key === 'ArrowLeft') setTime((t) => Math.max(0, t - 1 / 30));
-      if (event.key === 'ArrowRight')
-        setTime((t) => Math.min(duration, t + 1 / 30));
-      if (event.key.toLowerCase() === 'j' || event.key.toLowerCase() === 'k')
-        setPlaying(false);
-      if (event.key.toLowerCase() === 'l') setPlaying(true);
-      if (event.key === '[') setTime((t) => Math.max(0, t - 1));
-      if (event.key === ']') setTime((t) => Math.min(duration, t + 1));
+      if (locked || !doc) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
       }
+      if (event.code === 'Space') {
+        event.preventDefault();
+        toggle();
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        if (video.current) {
+          const step = event.key === 'ArrowLeft' ? -1 / 30 : 1 / 30;
+          seek(video.current.currentTime + step);
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [duration, redo, undo]);
-  const playhead = `${(time / duration) * 100}%`;
-  const sourceLabel = doc
-    ? `${doc.source.width} × ${doc.source.height}`
-    : 'No project loaded';
-  const updateTrim = () => {
-    if (!doc) return;
+  }, [doc, locked, undo, redo, seek, toggle]);
+
+  const importFile = async (source?: File) => {
+    if (!source) return;
+    setBusy(true);
+    setError('');
+    video.current?.pause();
+    try {
+      setDoc(await importVideo(source));
+    } catch (cause) {
+      setError(`Could not import video: ${message(cause)}`);
+    } finally {
+      setBusy(false);
+      if (picker.current) picker.current.value = '';
+    }
+  };
+  const trim = (edge: 'start' | 'end', value: number) => {
+    if (!doc || !Number.isFinite(value)) return;
+    const next = { start, end, [edge]: value };
+    if (
+      next.start < 0 ||
+      next.end > doc.source.durationSec ||
+      next.end - next.start < 0.05
+    ) {
+      setError('Keep at least 0.05 seconds within the source video.');
+      return;
+    }
+    setError('');
     updateDoc((current) => ({
       ...current,
-      edit: { ...current.edit, trims: [{ start: 0, end: duration }] },
+      edit: { ...current.edit, trims: [next] },
     }));
   };
+  const runExport = async () => {
+    if (!doc || !file) return;
+    video.current?.pause();
+    setError('');
+    setProgress(0);
+    setExported(false);
+    try {
+      job.current = await exportVideo(file, doc, setProgress);
+      const result = await job.current.result;
+      downloadFile(
+        result.file,
+        `${projectName(doc).replace(/\.[^.]+$/, '')}-edited.${doc.export.container}`,
+      );
+      window.setTimeout(
+        () => void result.cleanup().catch(() => undefined),
+        60_000,
+      );
+      setExported(true);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      job.current = null;
+      setProgress(null);
+    }
+  };
+
   return (
-    <main className="editor-shell">
+    <main className="studio">
       <header className="topbar">
-        <div className="brand">
+        <button
+          type="button"
+          className="brand"
+          onClick={() => {
+            video.current?.pause();
+            setDoc(null);
+            setError('');
+          }}
+          disabled={locked}
+          aria-label="Open library"
+        >
           <span className="brand-mark">OT</span>
           <h1>OpenTake</h1>
-          <span className="crumb">/ Editor</span>
-        </div>
-        <div className="transport">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={undo}
-            disabled={!past.length}
-            aria-label="Undo"
-          >
-            ↶
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={redo}
-            disabled={!future.length}
-            aria-label="Redo"
-          >
-            ↷
-          </button>
-          <button
-            type="button"
-            className={`play-button ${playing ? 'is-playing' : ''}`}
-            onClick={() => setPlaying((p) => !p)}
-            aria-label={playing ? 'Pause' : 'Play'}
-          >
-            {playing ? 'Ⅱ' : '▶'}
-          </button>
-          <output className="timecode" aria-label="Current time">
-            {tc(time)} <span>/ {tc(duration)}</span>
-          </output>
-        </div>
-        <div className="top-actions">
-          <span className="source-meta">{sourceLabel} · 30 fps</span>
-          <button
-            type="button"
-            className="export-top"
-            onClick={() => setPanel('Export')}
-          >
-            Export
-          </button>
-        </div>
-      </header>
-      <section className="workbench">
-        <div className="preview-wrap">
-          <div className="preview-toolbar">
-            <span>Preview</span>
-            <span className="preview-meta">{tc(time)} · 100%</span>
-          </div>
-          <div className="canvas-stage" role="img" aria-label="Video preview">
-            <div className="canvas-frame">
-              <div className="fake-window">
-                <span className="fake-dot red" />
-                <span className="fake-dot yellow" />
-                <span className="fake-dot green" />
-                <span className="fake-url">opentake.local / recorded tab</span>
-              </div>
-              <div className="fake-content">
-                <div className="fake-title" />
-                <div className="fake-line wide" />
-                <div className="fake-line" />
-                <div className="fake-block" />
-                <div className="cursor" />
-              </div>
-            </div>
-          </div>
-          <div className="zoom-indicator">
-            100% <span>·</span>{' '}
-            {doc ? 'cursor tracking active' : 'sample preview'}
-          </div>
-        </div>
-        <aside className="inspector" aria-label="Edit controls">
-          <div className="inspector-tabs">
-            {(['Trim', 'Zoom', 'Speed', 'Export'] as const).map((name) => (
-              <button
-                type="button"
-                key={name}
-                className={panel === name ? 'active' : ''}
-                onClick={() => setPanel(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-          {panel === 'Trim' && (
-            <div className="inspector-body">
-              <p className="eyebrow">Source range</p>
-              <div className="field-grid">
-                <label>
-                  In
-                  <input defaultValue="00:00:00" />
-                </label>
-                <label>
-                  Out
-                  <input defaultValue={tc(duration)} />
-                </label>
-              </div>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={updateTrim}
-              >
-                Set range to full source
-              </button>
-              <p className="hint">
-                Trim is non-destructive. Source time stays stable when speed
-                changes.
-              </p>
-            </div>
-          )}
-          {panel === 'Zoom' && (
-            <div className="inspector-body">
-              <p className="eyebrow">Camera</p>
-              <label className="range-label">
-                Scale <output>1.25×</output>
-                <input
-                  type="range"
-                  min="1"
-                  max="2"
-                  step=".05"
-                  defaultValue="1.25"
-                />
-              </label>
-              <label className="range-label">
-                Smoothing <output>0.60</output>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step=".05"
-                  defaultValue=".6"
-                />
-              </label>
-              <p className="hint">
-                Follow-cursor keyframes are shown in the zoom lane below.
-              </p>
-            </div>
-          )}
-          {panel === 'Speed' && (
-            <div className="inspector-body">
-              <p className="eyebrow">Rate at playhead</p>
-              <div className="rate-readout">
-                1.00<span>×</span>
-              </div>
-              <input
-                type="range"
-                min=".25"
-                max="3"
-                step=".25"
-                defaultValue="1"
-              />
-              <p className="hint">
-                Rate changes apply to source-time ranges and remain editable.
-              </p>
-            </div>
-          )}
-          {panel === 'Export' && <ExportPanel />}
-        </aside>
-      </section>
-      <section className="timeline" aria-label="Timeline editor">
-        <div className="timeline-head">
-          <div>
-            <span className="eyebrow">Timeline</span>
-            <span className="timeline-name">
-              {doc ? doc.id : 'Sample layout'}
-            </span>
-          </div>
-          <div className="timeline-actions">
-            <button type="button" onClick={() => setTime(0)}>
-              Home
-            </button>
-            <button type="button" onClick={() => setTime(duration)}>
-              End
-            </button>
-            <span className="snap">⌁ Snap on</span>
-          </div>
-        </div>
-        <div className="ruler">
-          {ticks.map((tick) => (
-            <span key={tick} style={{ left: `${(tick / 11) * 100}%` }}>
-              {tc((duration / 11) * tick)}
-            </span>
-          ))}
-        </div>
-        <div
-          className="track-area"
-          role="slider"
-          tabIndex={0}
-          aria-label="Timeline playhead"
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-valuenow={time}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') {
-              event.preventDefault();
-              setTime((current) => Math.max(0, current - 1 / 30));
-            }
-            if (event.key === 'ArrowRight') {
-              event.preventDefault();
-              setTime((current) => Math.min(duration, current + 1 / 30));
-            }
-          }}
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            setTime(
-              Math.max(
-                0,
-                Math.min(
-                  duration,
-                  ((e.clientX - rect.left) / rect.width) * duration,
-                ),
-              ),
-            );
-          }}
+        </button>
+        <span className="local-badge">
+          <i /> Stored on this device
+        </span>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => picker.current?.click()}
+          disabled={locked}
         >
-          <div className="track-labels">
-            <span>VIDEO</span>
-            <span>WAVEFORM</span>
-            <span>ZOOM</span>
-            <span>SPEED</span>
-          </div>
-          <div className="tracks">
-            <div className="video-track">
-              <span className="clip-name">
-                {doc ? doc.source.mediaKey : 'sample-recording.webm'}
-              </span>
-              <span className="clip-range">00:00:00 — {tc(duration)}</span>
-            </div>
-            <div className="wave-track">
-              {waveform.map((bar) => (
-                <i key={bar.id} style={{ height: `${bar.height}px` }} />
-              ))}
-            </div>
-            <div className="zoom-track">
-              <span className="zoom-ramp" />
-              <span className="zoom-ramp small" />
-            </div>
-            <div className="speed-track">
-              <svg
-                viewBox="0 0 100 42"
-                preserveAspectRatio="none"
-                aria-label="Speed curve"
-              >
-                <path d="M0 30 C18 30 20 30 28 20 S44 8 55 20 S70 37 78 25 S89 12 100 12" />
-              </svg>
-            </div>
-          </div>
-          <div className="playhead" style={{ left: playhead }}>
-            <span>{tc(time)}</span>
-          </div>
+          {busy ? 'Opening…' : 'Import video'}
+        </button>
+        <input
+          ref={picker}
+          className="file-input"
+          type="file"
+          accept="video/*,.mkv"
+          aria-label="Import video file"
+          onChange={(event) => void importFile(event.target.files?.[0])}
+        />
+      </header>
+      {error && (
+        <div role="alert" className="error-banner">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
         </div>
-      </section>
-      <footer className="statusbar">
+      )}
+      {!doc ? (
+        <section className="library">
+          <div className="library-intro">
+            <p className="eyebrow">LOCAL VIDEO STUDIO</p>
+            <h2>Record and trim videos</h2>
+            <p>Record a browser tab or import a video to edit.</p>
+            <button
+              type="button"
+              className="primary"
+              disabled={locked}
+              onClick={() => picker.current?.click()}
+            >
+              Import video <span>↗</span>
+            </button>
+            <p className="record-help">
+              To record, open the extension on the tab you want to capture.
+            </p>
+          </div>
+          <section className="shelf" aria-label="Your videos">
+            <div className="section-heading">
+              <h3>Your videos</h3>
+              <span>{library.length} saved locally</span>
+            </div>
+            {library.length === 0 ? (
+              <div className="empty-shelf">
+                <span className="empty-symbol">▤</span>
+                <h3>{busy ? 'Opening your library…' : 'No videos yet'}</h3>
+                <p>
+                  Imported videos and finished recordings appear here.
+                  <br />
+                  No account. No uploads.
+                </p>
+              </div>
+            ) : (
+              <div className="video-list">
+                {library.map((item, index) => (
+                  <button
+                    type="button"
+                    className="library-item"
+                    key={item.id}
+                    disabled={locked}
+                    onClick={() => {
+                      setError('');
+                      setDoc(item);
+                    }}
+                  >
+                    <span className="item-number">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="item-title">
+                      {projectName(item)}
+                      <small>
+                        {item.source.width} × {item.source.height} ·{' '}
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </small>
+                    </span>
+                    <span>{timecode(item.source.durationSec)}</span>
+                    <span>↗</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
+      ) : (
+        <>
+          <div className="project-heading">
+            <div>
+              <button
+                type="button"
+                className="back"
+                onClick={() => {
+                  video.current?.pause();
+                  setDoc(null);
+                }}
+                disabled={locked}
+              >
+                ← Your videos
+              </button>
+              <h2>{projectName(doc)}</h2>
+            </div>
+            <span className="save-status" role="status">
+              {saveFailed
+                ? 'Save failed'
+                : savedDoc === doc
+                  ? 'Saved on this device'
+                  : 'Saving…'}
+            </span>
+          </div>
+          <div className="workbench">
+            <section className="preview" aria-label="Video preview">
+              <div className="preview-label">
+                <span>PREVIEW</span>
+                <span>
+                  {doc.source.width} × {doc.source.height} ·{' '}
+                  {doc.source.hasAudio ? 'With audio' : 'Silent video'}
+                </span>
+              </div>
+              <div className="video-stage">
+                {/* biome-ignore lint/a11y/useMediaCaption: User-supplied local media has no caption track. */}
+                <video
+                  ref={video}
+                  src={url || undefined}
+                  playsInline
+                  preload="auto"
+                  aria-label="Recorded video"
+                  onLoadedMetadata={() => seek(start)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={() => setPlaying(false)}
+                  onError={() =>
+                    setError(
+                      'The browser could not play this video. Try another file or download the original.',
+                    )
+                  }
+                  onTimeUpdate={() => {
+                    const element = video.current;
+                    if (!element) return;
+                    if (element.currentTime >= end) {
+                      element.pause();
+                      if (element.currentTime > end + 0.001)
+                        element.currentTime = end;
+                    }
+                    setTime(element.currentTime);
+                  }}
+                />
+              </div>
+              <div className="transport">
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={playing ? 'Pause' : 'Play'}
+                  disabled={!url || locked}
+                  onClick={toggle}
+                >
+                  {playing ? 'Ⅱ' : '▶'}
+                </button>
+                <output aria-label="Current time">
+                  {timecode(time)}{' '}
+                  <span>/ {timecode(doc.source.durationSec)}</span>
+                </output>
+                <span className="transport-hint">
+                  Space to play · ← → to step
+                </span>
+              </div>
+              <div className="timeline">
+                <div className="section-heading">
+                  <h3>Selected clip</h3>
+                  <span>{timecode(end - start)} retained</span>
+                </div>
+                <input
+                  type="range"
+                  aria-label="Timeline playhead"
+                  min={start}
+                  max={end}
+                  step="0.001"
+                  value={Math.max(start, Math.min(end, time))}
+                  onChange={(event) => seek(Number(event.target.value))}
+                  disabled={locked || !url}
+                />
+                <div className="range-labels">
+                  <span>{timecode(start)}</span>
+                  <span>{timecode(end)}</span>
+                </div>
+              </div>
+            </section>
+            <Inspector
+              doc={doc}
+              locked={locked}
+              start={start}
+              end={end}
+              time={time}
+              trim={trim}
+              runExport={runExport}
+              file={file}
+              progress={progress}
+              job={job}
+              exported={exported}
+            />
+          </div>
+        </>
+      )}
+      <footer>
         <span>
-          <kbd>Space</kbd> play <kbd>J</kbd>
-          <kbd>K</kbd>
-          <kbd>L</kbd> shuttle <kbd>←</kbd>
-          <kbd>→</kbd> frame step
+          OpenTake <span className="footer-dot">/</span> Local-first video
         </span>
         <span>
-          {doc
-            ? 'Project ready · local only'
-            : 'No project loaded · controls are preview-safe'}
+          Files stay in this browser. Download a copy to keep a backup.
         </span>
       </footer>
     </main>
-  );
-}
-
-const exportOptions: Record<
-  'mp4' | 'webm',
-  Array<{ label: string; value: ExportCodec }>
-> = {
-  mp4: [
-    {
-      label: 'H.264 / AAC · widest compatibility',
-      value: 'h264-mp4',
-    },
-  ],
-  webm: [
-    { label: 'VP9 / Opus', value: 'vp9-webm' },
-    { label: 'AV1 / Opus · better compression', value: 'av1-webm' },
-  ],
-};
-
-function ExportPanel() {
-  const [format, setFormat] = useState<'mp4' | 'webm'>('mp4');
-  const [codec, setCodec] = useState<ExportCodec>('h264-mp4');
-  const [rateControl, setRateControl] = useState<'quality' | 'bitrate'>(
-    'quality',
-  );
-  const [capabilities, setCapabilities] = useState<
-    Record<ExportCodec, boolean>
-  >({ 'h264-mp4': false, 'vp9-webm': false, 'av1-webm': false });
-  useEffect(() => {
-    void probeExportCapabilities().then((items) =>
-      setCapabilities(
-        Object.fromEntries(
-          items.map((item) => [item.codec, item.supported]),
-        ) as Record<ExportCodec, boolean>,
-      ),
-    );
-  }, []);
-  const options = exportOptions[format];
-  const selectedSupported = capabilities[codec];
-  return (
-    <div className="inspector-body">
-      <p className="eyebrow">Export settings</p>
-      <label className="select-label">
-        Container
-        <select
-          value={format}
-          onChange={(e) => {
-            const next = e.target.value === 'webm' ? 'webm' : 'mp4';
-            setFormat(next);
-            setCodec(next === 'mp4' ? 'h264-mp4' : 'vp9-webm');
-          }}
-        >
-          <option value="mp4">MP4</option>
-          <option value="webm">WebM</option>
-        </select>
-      </label>
-      <label className="select-label">
-        Codec / audio
-        <select
-          value={codec}
-          onChange={(e) => setCodec(e.target.value as ExportCodec)}
-        >
-          {options.map((option) => (
-            <option
-              key={option.value}
-              value={option.value}
-              disabled={!capabilities[option.value]}
-            >
-              {option.label}
-              {!capabilities[option.value] ? ' · unavailable' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="select-label">
-        Rate control
-        <select
-          value={rateControl}
-          onChange={(event) =>
-            setRateControl(
-              event.target.value === 'bitrate' ? 'bitrate' : 'quality',
-            )
-          }
-        >
-          <option value="quality">Constant quality</option>
-          <option value="bitrate">Target bitrate</option>
-        </select>
-      </label>
-      <label className="select-label">
-        {rateControl === 'quality' ? 'Quality' : 'Bitrate (Mbps)'}
-        <input
-          defaultValue={rateControl === 'quality' ? '80' : '12'}
-          type="number"
-          min="1"
-          max={rateControl === 'quality' ? '100' : '200'}
-        />
-      </label>
-      <button type="button" className="export-button" disabled>
-        Export renderer not wired yet
-      </button>
-      <p className="hint">
-        {selectedSupported
-          ? 'This format is supported on this device. Export support will be added with the render milestone.'
-          : 'This codec combination is unavailable on this device.'}
-      </p>
-    </div>
   );
 }
 const root = document.getElementById('root');

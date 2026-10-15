@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
@@ -9,6 +10,8 @@ import {
   type Page,
   test,
 } from '@playwright/test';
+
+import { verifyEditorFlow } from './editor-flow';
 
 const chromePath = process.env.OPENTAKE_CHROME_PATH;
 const extensionPath = resolve(import.meta.dirname, '../../dist-e2e');
@@ -153,8 +156,15 @@ test.beforeAll(async ({ browserName }, testInfo) => {
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
+        // Chromium's test-only permission grant; capture itself uses real local tab pixels.
+        `--allowlisted-extension-id=${createHash('sha256')
+          .update(extensionPath)
+          .digest('hex')
+          .slice(0, 32)
+          .replace(/[0-9a-f]/g, (digit) =>
+            String.fromCharCode(97 + Number.parseInt(digit, 16)),
+          )}`,
         '--autoplay-policy=no-user-gesture-required',
-        '--use-fake-ui-for-media-stream',
       ],
     },
   );
@@ -193,9 +203,7 @@ test('loads the MV3 extension and answers recording status', async () => {
   await expect(
     popup.getByRole('button', { name: 'Record this tab' }),
   ).toBeEnabled();
-  await expect(
-    popup.getByText('No page text, URLs, or key values'),
-  ).toBeVisible();
+  await expect(popup.getByText('Video stays on this device.')).toBeVisible();
   const manifest = await popup.evaluate(() => chrome.runtime.getManifest());
   expect(manifest.manifest_version).toBe(3);
   expect(manifest.permissions).toEqual(
@@ -222,55 +230,15 @@ test('opens the editor from the popup', async () => {
   expectNoRuntimeErrors(popupErrors);
 });
 
-test('supports editor transport and timeline keyboard controls', async () => {
-  const { page: editor, errors } = await openExtensionPage('editor.html', {
-    width: 1440,
-    height: 900,
-  });
-  const playButton = editor.getByRole('button', { name: 'Play' });
-  await playButton.click();
-  await expect(editor.getByRole('button', { name: 'Pause' })).toBeVisible();
-  await editor.keyboard.press('Space');
-  await expect(editor.getByRole('button', { name: 'Play' })).toBeVisible();
-
-  const timeline = editor.getByRole('slider', { name: 'Timeline playhead' });
-  await editor.getByRole('button', { name: 'Home' }).click();
-  await expect(timeline).toHaveAttribute('aria-valuenow', '0');
-  await timeline.focus();
-  await editor.keyboard.press('ArrowRight');
-  await expect(timeline).not.toHaveAttribute('aria-valuenow', '0');
-  await editor.getByRole('button', { name: 'End' }).click();
-  await expect(timeline).toHaveAttribute('aria-valuenow', '92.4');
-  expectNoRuntimeErrors(errors);
-});
-
-test('switches editor panels and exposes compression formats', async ({
+test('imports, previews, trims, saves and exports actual media', async ({
   browserName,
 }, testInfo) => {
   void browserName;
   const { page: editor, errors } = await openExtensionPage('editor.html', {
     width: 1440,
-    height: 900,
+    height: 1000,
   });
-  await editor.getByRole('button', { name: 'Zoom', exact: true }).click();
-  await expect(editor.getByText('Follow-cursor keyframes')).toBeVisible();
-  await editor.getByRole('button', { name: 'Speed', exact: true }).click();
-  await expect(editor.getByText('Rate at playhead')).toBeVisible();
-  await editor
-    .getByRole('button', { name: 'Export', exact: true })
-    .first()
-    .click();
-  await editor.getByLabel('Container').selectOption('webm');
-  await expect(editor.getByLabel('Codec / audio')).toContainText('VP9 / Opus');
-  await expect(editor.getByLabel('Codec / audio')).toContainText('AV1 / Opus');
-  await editor.getByLabel('Rate control').selectOption('bitrate');
-  await expect(editor.getByText('Bitrate (Mbps)')).toBeVisible();
-  await expect(
-    editor.getByRole('button', { name: 'Export renderer not wired yet' }),
-  ).toBeDisabled();
-  if (process.env.OPENTAKE_CAPTURE_SCREENSHOTS === '1') {
-    await editor.screenshot({ path: testInfo.outputPath('editor.png') });
-  }
+  await verifyEditorFlow(editor, testInfo);
   expectNoRuntimeErrors(errors);
 });
 
@@ -430,9 +398,69 @@ test('records synthetic media across a service-worker restart', async () => {
       },
     };
   });
+  await expect(editor.locator('video')).toBeVisible();
+  await expect
+    .poll(() =>
+      editor
+        .locator('video')
+        .evaluate((element: HTMLVideoElement) => element.readyState),
+    )
+    .toBeGreaterThanOrEqual(2);
   expect(recording.last.finalized).toBe(true);
   expect(recording.mediaSize).toBeGreaterThan(0);
   expect(recording.eventLog.clicks.length).toBeGreaterThan(0);
   expect(recording.eventLog.keyMarks.length).toBeGreaterThan(0);
   expect(recording.eventLog.viewport.length).toBeGreaterThan(0);
+});
+
+test('captures real tab pixels through the Chromium capture API', async () => {
+  const { popup, target, targetTabId } = await prepareCapture();
+  await target.bringToFront();
+
+  const response = await popup.evaluate(
+    (tabId) =>
+      chrome.runtime.sendMessage({
+        type: 'START_RECORDING',
+        targetTabId: tabId,
+        countdownMs: 0,
+      }),
+    targetTabId,
+  );
+  expect(response.ok).toBe(true);
+  await expect
+    .poll(() =>
+      popup.evaluate(async () => {
+        const status = await chrome.runtime.sendMessage({
+          type: 'RECORDING_STATUS',
+        });
+        const stored = await chrome.storage.local.get('recordingError');
+        if (stored.recordingError)
+          throw new Error(String(stored.recordingError));
+        return status;
+      }),
+    )
+    .toMatchObject({ state: 'recording' });
+  await expect
+    .poll(() =>
+      popup.evaluate(async () => {
+        const status = await chrome.runtime.sendMessage({
+          type: 'RECORDING_STATUS',
+        });
+        return Date.now() - status.session.startedAt;
+      }),
+    )
+    .toBeGreaterThan(1200);
+  const opening = context.waitForEvent('page');
+  await popup.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }),
+  );
+  const editor = await opening;
+  await expect(editor.locator('video')).toBeVisible();
+  await expect
+    .poll(() =>
+      editor
+        .locator('video')
+        .evaluate((element: HTMLVideoElement) => element.readyState),
+    )
+    .toBeGreaterThanOrEqual(2);
 });

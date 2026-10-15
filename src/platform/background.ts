@@ -1,5 +1,5 @@
 import contentScript from './content-script.iife.ts?script';
-import { createOpfsStore } from './opfs';
+import { OpfsStore } from './opfs';
 import {
   isRuntimeMessage,
   LAST_RECORDING_STORAGE_KEY,
@@ -10,7 +10,7 @@ import {
   type SerializedEventLog,
 } from './protocol';
 
-const store = createOpfsStore();
+const store = new OpfsStore();
 let resolveOffscreenReady: (() => void) | undefined;
 
 function isSerializedEventLog(
@@ -54,6 +54,12 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
         error: 'Firefox tab capture is not implemented yet.',
       };
     }
+    if (await getSession())
+      return {
+        ok: false,
+        error:
+          'A recording is already active. Stop it before starting another.',
+      };
     const sessionId = crypto.randomUUID();
     const marker: RecordingSessionMarker = {
       id: sessionId,
@@ -69,10 +75,17 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
     await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: marker });
     try {
       await ensureOffscreen();
+      const streamId =
+        message.streamId ??
+        (await chrome.tabCapture.getMediaStreamId({
+          targetTabId: message.targetTabId,
+        }));
+      if ((await getSession())?.id !== marker.id)
+        return { ok: true, state: 'stopped', sessionId };
       await chrome.runtime.sendMessage({
         type: 'OFFSCREEN_START',
         session: marker,
-        streamId: message.streamId,
+        streamId,
         countdownMs: message.countdownMs ?? 0,
       } satisfies RuntimeMessage);
       return { ok: true, state: 'starting', sessionId };
@@ -135,15 +148,25 @@ async function responseFor(message: RuntimeMessage): Promise<RuntimeResponse> {
   if (message.type === 'OFFSCREEN_FINALIZED') {
     const session = await getSession();
     if (session?.id === message.sessionId) {
+      const stored = await chrome.storage.local.get('recordingLibrary');
+      const finalized = {
+        ...session,
+        durationSec: message.durationSec,
+        finalized: true,
+      };
       await chrome.storage.local.set({
-        [LAST_RECORDING_STORAGE_KEY]: {
-          ...session,
-          durationSec: message.durationSec,
-          finalized: true,
-        },
+        recordingLibrary: [
+          ...(Array.isArray(stored.recordingLibrary)
+            ? stored.recordingLibrary
+            : []),
+          finalized,
+        ],
+        [LAST_RECORDING_STORAGE_KEY]: finalized,
       });
       await chrome.storage.local.remove(SESSION_STORAGE_KEY);
-      await chrome.tabs.create({ url: chrome.runtime.getURL('editor.html') });
+      await chrome.tabs.create({
+        url: chrome.runtime.getURL(`editor.html?project=${session.id}`),
+      });
     }
     return { ok: true, state: 'stopped', sessionId: message.sessionId };
   }

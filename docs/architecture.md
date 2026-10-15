@@ -1,51 +1,32 @@
 # Architecture
 
-## Non-destructive pipeline
+## Recording
 
-OpenTake records raw media and an interaction log. The editor mutates a versioned `ProjectDoc`; it never rewrites source media. Preview and export both call the same conceptual function:
+The popup starts and stops tab recordings. After the user invokes the extension, the Chromium service worker creates a tab-capture stream ID and passes it to an offscreen document. The offscreen document owns the recorder and streams media chunks to OPFS, so recording continues across service-worker restarts.
 
-```text
-render(sourceMedia, projectDoc, outputTime) -> frame
-```
+The content script collects timestamped pointer, click, scroll and key-press markers. It does not collect page text, URLs or key values. Recording-session metadata and the list of completed recordings live in extension storage.
 
-The renderer is deterministic for a source frame, project document, and output timestamp. Zooms, pans, trims, speed changes, backgrounds, cursor styling, rounding, and shadows are render-time inputs.
+Firefox has a separate package with an event-page background script. Its capture adapter is not implemented; the popup disables recording there.
 
-## Time domains
+## Projects and playback
 
-All edit data is keyed by source time `tau`. Trims remove source intervals, and speed segments define a piecewise-constant rate over retained source time. `TimeMap` computes both `source -> output` and its exact piecewise inverse. Output frame iteration never numerically searches for a source timestamp.
+- `src/core/project.ts` defines and validates the versioned project document and its serialization.
+- `src/platform/` contains recording, interaction collection and OPFS storage.
+- `src/editor/` contains the library, playback, editing state and export.
+- `src/popup/` provides recording controls.
 
-Keeping edits in source time prevents later speed edits from moving a zoom or event.
+Media files and `project-<id>.json` documents live in OPFS. The editor queues saves and reports a document as saved only after its write completes. Undo/redo changes the project document without rewriting the original video.
 
-## Runtime boundaries
+The editor supports one retained range, stored in source seconds. Native video playback and export use that same range. The version-1 schema retains speed, camera and appearance fields for document compatibility, but the UI does not expose them. Export rejects speed/camera edits it cannot render.
 
-- `src/core/`: project schema, time mapping, camera decisions, and compositor math. Pure TypeScript; no DOM or extension imports.
-- `src/platform/`: Manifest V3 routing, tab capture, the offscreen recorder, OPFS, content-script collection, WebCodecs capability probing, and browser adapters.
-- `src/editor/`: editor state and UI. It mutates the project document and asks the renderer for preview frames.
-- `src/popup/`: user-gesture entry point for starting a tab recording.
+## Export
 
-In Chromium, the service worker is a stateless message router. An offscreen document owns each recording so MV3 worker suspension cannot destroy live state. A persisted session marker supports recovery after worker restart or an unclean recording stop.
+`src/editor/export.ts` uses Mediabunny Conversion to trim and resize proportionally. It writes to a temporary OPFS file through StreamTarget, then starts a local download. Cancellation or failure removes partial output; completed output remains available until the download consumer releases it.
 
-Firefox uses an event-page background script and does not implement Chromium's `offscreen` or `tabCapture` APIs. Its capture adapter will use Firefox's display-capture flow while preserving the same OPFS media, event-log, and editor contracts. The Firefox package omits unsupported permissions and is linted separately.
+The UI offers MP4 with H.264/AAC and WebM with VP9/Opus. Conversion checks the actual source tracks and requested output. Unsupported codecs produce an error; audio is never silently dropped. Audio encoder padding can slightly extend container duration beyond the selected video range.
 
-## Export architecture
+## Build and checks
 
-Container, video codec, audio codec, and rate control are separate project settings. The initial valid combinations are:
+Vite builds separate Chromium and Firefox packages. Styling uses plain CSS and locally bundled fonts. Zod runs in interpreter mode; the build removes optional JIT branches to satisfy extension CSP and Firefox's static checks.
 
-| Use                             | Container | Video | Audio |
-| ------------------------------- | --------- | ----- | ----- |
-| Broad compatibility             | MP4       | H.264 | AAC   |
-| Smaller, fast WebM              | WebM      | VP9   | Opus  |
-| Best compression when available | WebM      | AV1   | Opus  |
-
-Mediabunny provides one local mux/demux boundary for MP4 and WebM. WebCodecs performs hardware-backed encoding where available. The editor probes each concrete encoder configuration with `VideoEncoder.isConfigSupported()` and disables unavailable choices. No upload fallback and no `ffmpeg.wasm` path are planned.
-
-## Milestone order
-
-1. Skeleton: buildable MV3 surfaces, versioned schema, OPFS, and round-trip tests.
-2. Recording: tab capture to OPFS plus aligned interaction events and crash recovery.
-3. Renderer: exact `TimeMap`, demux/decode, deterministic compositor, and golden frames.
-4. Editor: responsive preview, timeline, waveform cache, keyboard control, and undo/redo.
-5. Editing: trims, zoom generation/editing, speed segments, and audio stretching.
-6. Look and export: reframing, presentation controls, MP4/WebM encoding, progress, and cancellation.
-
-Each milestone must meet its acceptance checks before the next one adds scope.
+`bun run check` validates formatting, types, unit tests, unused files/dependencies/exports/types, both browser packages, extension policy and bundle size. `bun run test:e2e` exercises playback, editing, saves, export, accessibility and recording in Chromium. Real tab-capture tests use Chromium's test-only permission allowlist for a local fixture page; they do not automate the toolbar permission gesture.

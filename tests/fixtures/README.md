@@ -13,4 +13,4 @@ ffmpeg -f lavfi -i 'testsrc2=size=320x180:rate=30' \
   -metadata title='OpenTake synthetic test fixture' synthetic.webm
 ```
 
-Renderer golden-frame tests will use this recording when the compositor lands.
+Browser tests import this recording, trim it, and inspect the exported video frames and audio tracks.

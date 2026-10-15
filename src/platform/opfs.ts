@@ -156,7 +156,3 @@ export class OpfsStore {
     return names.sort();
   }
 }
-
-export function createOpfsStore(root?: StorageRoot): OpfsStore {
-  return new OpfsStore(root);
-}

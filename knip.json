@@ -8,13 +8,8 @@
     "src/platform/content-script.iife.ts",
     "scripts/*.ts",
     "tests/**/*.test.ts",
-    "tests/e2e/*.ts"
+    "tests/e2e/*.spec.ts"
   ],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/**/*.ts"],
-  "ignoreDependencies": [
-    "@fontsource/dm-sans",
-    "@fontsource/ibm-plex-mono",
-    "mediabunny",
-    "tailwindcss"
-  ]
+  "ignoreDependencies": ["@fontsource/dm-sans", "@fontsource/ibm-plex-mono"]
 }

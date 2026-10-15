@@ -1,4 +1,4 @@
-import { createOpfsStore, type OpfsWriter } from './opfs';
+import { OpfsStore, type OpfsWriter } from './opfs';
 import {
   isRuntimeMessage,
   type RecordingSessionMarker,
@@ -12,10 +12,12 @@ type ActiveRecording = {
   writeChain: Promise<void>;
   session: RecordingSessionMarker;
   epochMs: number;
+  audioContext?: AudioContext;
 };
 
 let active: ActiveRecording | undefined;
 let startGeneration = 0;
+let syntheticTimer: number | undefined;
 
 void chrome.runtime
   .sendMessage({
@@ -36,9 +38,9 @@ function syntheticTestStream(): MediaStream {
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#d4f36a';
     context.fillRect((frame * 5) % 1080, 260, 200, 200);
-    requestAnimationFrame(paint);
   };
   paint();
+  syntheticTimer = window.setInterval(paint, 33);
   return canvas.captureStream(30);
 }
 
@@ -90,8 +92,21 @@ async function start(
             audio: source,
             video: source,
           });
-    const store = createOpfsStore();
+    if (generation !== startGeneration) {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      return;
+    }
+    const store = new OpfsStore();
     writer = await store.openWriter(session.mediaKey);
+    if (generation !== startGeneration) {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      await writer.abort();
+      return;
+    }
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
       ? 'video/webm;codecs=vp9,opus'
       : 'video/webm';
@@ -106,11 +121,20 @@ async function start(
       epochMs,
     };
     active = recording;
+    if (stream.getAudioTracks().length) {
+      recording.audioContext = new AudioContext();
+      recording.audioContext
+        .createMediaStreamSource(stream)
+        .connect(recording.audioContext.destination);
+      void recording.audioContext.resume();
+    }
+    for (const track of stream.getVideoTracks()) track.onended = stop;
     recorder.ondataavailable = (event) => {
       if (event.data.size === 0) return;
       recording.writeChain = recording.writeChain.then(() =>
         recording.writer.write(event.data),
       );
+      void recording.writeChain.catch(() => stop());
     };
     recorder.onstop = () => void finalize(recording);
     recorder.onerror = () => stop();
@@ -122,6 +146,14 @@ async function start(
       mimeType: recorder.mimeType,
     } satisfies RuntimeMessage);
   } catch (error) {
+    if (active?.session.id === session.id) {
+      active.recorder.onstop = null;
+      active.recorder.ondataavailable = null;
+      if (active.recorder.state !== 'inactive') active.recorder.stop();
+      await active.audioContext?.close().catch(() => undefined);
+      active = undefined;
+    }
+    window.clearInterval(syntheticTimer);
     stream?.getTracks().forEach((track) => {
       track.stop();
     });
@@ -135,6 +167,7 @@ function stop(): void {
 }
 
 async function finalize(recording: ActiveRecording): Promise<void> {
+  window.clearInterval(syntheticTimer);
   try {
     await recording.writeChain;
     await recording.writer.close();
@@ -143,6 +176,7 @@ async function finalize(recording: ActiveRecording): Promise<void> {
     recording.stream.getTracks().forEach((track) => {
       track.stop();
     });
+    await recording.audioContext?.close().catch(() => undefined);
     active = undefined;
     await chrome.runtime.sendMessage({
       type: 'OFFSCREEN_FINALIZED',
@@ -154,6 +188,7 @@ async function finalize(recording: ActiveRecording): Promise<void> {
     recording.stream.getTracks().forEach((track) => {
       track.stop();
     });
+    await recording.audioContext?.close().catch(() => undefined);
     active = undefined;
     await reportFailure(recording.session.id, error);
   }
